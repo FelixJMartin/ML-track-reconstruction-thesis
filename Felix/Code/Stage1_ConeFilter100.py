@@ -1,8 +1,10 @@
 # ================================================================================
 # stage1_cone_filter.py
 # Trains a RadLIF SNN to classify cones as signal (contains track) or noise.
-# Input:  X_rz.npy      — r-z matrices (100x100)
-#         y_stage1.npy  — binary labels (0/1)
+# Input:  matrices100/train/X_rz.npy      — r-z matrices (100x100)
+#         matrices100/train/y_stage1.npy  — binary labels (0/1)
+#         matrices100/val/X_rz.npy        — val matrices
+#         matrices100/val/y_stage1.npy    — val labels
 # Output: model_stage1.pt
 # ================================================================================
 
@@ -13,7 +15,6 @@ sys.path.append(r"C:\Users\felix\Downloads\Skola\Kand\BACHELOR_CODE\Felix\SNN")
 import torch
 import torch.nn as nn
 from snns import RadLIFLayer
-from sklearn.model_selection import train_test_split
 
 import os
 import numpy as np
@@ -26,8 +27,12 @@ EPOCHS     = 60
 LR         = 1e-3
 BATCH_SIZE = 32
 
-data_dir = r"C:\Users\felix\Downloads\Skola\Kand\BACHELOR_CODE\Data\train_100_events"
-Save_dir = r"C:\Users\felix\Downloads\Skola\Kand\BACHELOR_CODE\data\matrices100"
+data_dir  = r"C:\Users\felix\Downloads\Skola\Kand\BACHELOR_CODE\Data\train_100_events"
+Save_dir  = r"C:\Users\felix\Downloads\Skola\Kand\BACHELOR_CODE\data\matrices100"
+
+# Event-level split directories produced by build_data100.py
+train_dir = os.path.join(Save_dir, "train")
+val_dir   = os.path.join(Save_dir, "val")
 
 from build_data100 import (make_rz_grid, get_cone, CONE_SIGNS, SAMPLE_FRACTION,
                            SNN_R_BINS, SNN_Z_BINS, SNN_R_MAX, SNN_Z_MAX)
@@ -50,16 +55,25 @@ class ConeFilterSNN(nn.Module):
 
 
 # ── TRAIN ─────────────────────────────────────────────────────────────────────
-def train(X_data, y_data):
-    Xtr, Xv, ytr, yv = train_test_split(X_data, y_data, test_size=0.2,
-                                         stratify=y_data, random_state=42)
-
+def train(X_train, y_train, X_val, y_val):
+    """
+    Train Stage 1 using a pre-split train/val from event-level splitting.
+    No matrix-level train_test_split — that would cause data leakage.
+    """
     model   = ConeFilterSNN(SNN_R_BINS, bs=BATCH_SIZE)
     opt     = torch.optim.Adam(model.parameters(), lr=LR)
     sched   = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=5, factor=0.5)
     loss_fn = nn.BCEWithLogitsLoss()
 
-    Xtr, ytr, Xv, yv = map(torch.tensor, [Xtr, ytr, Xv, yv])
+    Xtr = torch.tensor(X_train)
+    ytr = torch.tensor(y_train)
+    Xv  = torch.tensor(X_val)
+    yv  = torch.tensor(y_val)
+
+    print(f"  Train: {len(Xtr)} matrices  "
+          f"signal={int(ytr.sum())}  noise={int((1-ytr).sum())}")
+    print(f"  Val:   {len(Xv)} matrices  "
+          f"signal={int(yv.sum())}  noise={int((1-yv).sum())}")
 
     train_losses, val_losses, val_accs = [], [], []
     best = 0.0
@@ -137,9 +151,10 @@ def scan_event(event_path, model, threshold=0.5):
 # ── MAIN ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("Loading training data...")
-    X_data = np.load(os.path.join(Save_dir, "X_rz.npy"))
-    y_data = np.load(os.path.join(Save_dir, "y_stage1.npy"))
-    print(f"  {len(X_data)} matrices  signal={int(y_data.sum())}  noise={int((1-y_data).sum())}")
+    X_train = np.load(os.path.join(train_dir, "X_rz.npy"))
+    y_train = np.load(os.path.join(train_dir, "y_stage1.npy"))
+    X_val   = np.load(os.path.join(val_dir,   "X_rz.npy"))
+    y_val   = np.load(os.path.join(val_dir,   "y_stage1.npy"))
 
     model_path = os.path.join(Save_dir, "model_stage1.pt")
     if os.path.exists(model_path):
@@ -151,7 +166,9 @@ if __name__ == "__main__":
         print("Model loaded.")
     else:
         print("Training stage 1 model...")
-        trained_model, train_losses, val_losses, val_accs = train(X_data, y_data)
+        trained_model, train_losses, val_losses, val_accs = train(
+            X_train, y_train, X_val, y_val
+        )
         torch.save({
             'model_state':  trained_model.state_dict(),
             'train_losses': train_losses,

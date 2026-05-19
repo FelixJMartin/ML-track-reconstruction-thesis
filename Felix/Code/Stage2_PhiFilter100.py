@@ -10,7 +10,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from snns import RadLIFLayer
-from sklearn.model_selection import train_test_split
 from trackml.dataset import load_event
 from Functions import preprocess_particles
 
@@ -38,6 +37,10 @@ THRESH_S2      = 0.6
 data_dir       = r"C:\Users\felix\Downloads\Skola\Kand\BACHELOR_CODE\Data\train_100_events"
 Save_dir       = r"C:\Users\felix\Downloads\Skola\Kand\BACHELOR_CODE\data\matrices100"
 
+# Subdirectories produced by build_data100.py event-level split
+train_dir = os.path.join(Save_dir, "train")
+val_dir   = os.path.join(Save_dir, "val")
+
 
 # ── MODEL ─────────────────────────────────────────────────────────────────────
 class PhiFinderSNN(nn.Module):
@@ -59,22 +62,26 @@ class PhiFinderSNN(nn.Module):
 
 
 # ── TRAIN ─────────────────────────────────────────────────────────────────────
-def train_stage2(X, y):
-    Xtr, Xv, ytr, yv = train_test_split(X, y, test_size=0.2, random_state=42)
+def train_stage2(X_train, y_train, X_val, y_val):
+    """
+    Train Stage 2 using a pre-split train/val from event-level splitting.
+    No matrix-level train_test_split — that would cause data leakage.
+    """
+    model  = PhiFinderSNN(bs=BATCH_SIZE)
+    opt    = torch.optim.Adam(model.parameters(), lr=LR)
+    sched  = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=5, factor=0.5)
 
-    model   = PhiFinderSNN(bs=BATCH_SIZE)
-    opt     = torch.optim.Adam(model.parameters(), lr=LR)
-    sched   = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, patience=5, factor=0.5)
-
-    n_pos      = ytr.sum()
-    n_neg      = ytr.size - n_pos
+    n_pos      = y_train.sum()
+    n_neg      = y_train.size - n_pos
     pos_weight = torch.tensor([min(n_neg / n_pos, 10.0)], dtype=torch.float32)
     loss_fn    = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     print(f"  pos_weight={pos_weight.item():.1f}  "
           f"n_pos={int(n_pos)}  n_neg={int(n_neg)}")
 
-    Xtr, ytr    = torch.tensor(Xtr), torch.tensor(ytr)
-    Xv,  yv     = torch.tensor(Xv),  torch.tensor(yv)
+    Xtr = torch.tensor(X_train)
+    ytr = torch.tensor(y_train)
+    Xv  = torch.tensor(X_val)
+    yv  = torch.tensor(y_val)
     yv_sig_mask = yv.sum(dim=1) > 0
 
     train_losses, val_losses, val_ious, val_overlaps = [], [], [], []
@@ -204,10 +211,7 @@ def scan_event_full(event_path, model_s1, model_s2,
             fig.subplots_adjust(wspace=0.12)
 
             for col, (ax, r) in enumerate(zip(axes[0], plottable)):
-                sx, sy, sz = r['cone']
-
                 ax.grid(axis='y', color='grey', alpha=0.2, zorder=0)
-
                 bars = ax.bar(range(SNN_PHI_BINS), r['phi_probs'],
                               width=1, color='#cce0f5', linewidth=0, zorder=2)
                 for b in r['active_bins']:
@@ -238,68 +242,25 @@ def scan_event_full(event_path, model_s1, model_s2,
     return results
 
 
-
-def run_variance_test(X, y, n_seeds=5, subset_size=1298, epochs=50):
-    """Train on different random subsets to test sensitivity to training data."""
-    results = []
-    
-    print(f"\n{'='*60}")
-    print(f"  Variance test: {n_seeds} seeds, subset_size={subset_size}")
-    print(f"{'='*60}\n")
-    
-    for seed in range(n_seeds):
-        print(f"--- Seed {seed} ---")
-        rng = np.random.RandomState(seed)
-        idx = rng.choice(len(X), size=subset_size, replace=False)
-        X_sub = X[idx]
-        y_sub = y[idx]
-        
-        # temporarily reduce epochs for speed
-        global EPOCHS
-        EPOCHS = epochs
-        
-        model, _, _, val_ious, _ = train_stage2(X_sub, y_sub)
-        best_iou = max(val_ious)
-        results.append(best_iou * 100)
-        print(f"  --> best_iou={best_iou*100:.1f}%\n")
-    
-    print(f"\n{'='*60}")
-    print(f"  Mean IoU : {np.mean(results):.1f}%")
-    print(f"  Std IoU  : {np.std(results):.1f}%")
-    print(f"  Min IoU  : {np.min(results):.1f}%")
-    print(f"  Max IoU  : {np.max(results):.1f}%")
-    print(f"  Range    : {np.max(results)-np.min(results):.1f}%")
-    print(f"{'='*60}\n")
-    return results
-
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
 
-    # ── load data ─────────────────────────────────────────────────────────────
-    X_rz   = np.load(os.path.join(Save_dir, "X_rz.npy"))
-    X_rphi = np.load(os.path.join(Save_dir, "X_rphi.npy"))
-    y_s1   = np.load(os.path.join(Save_dir, "y_stage1.npy"))
-    y_s2   = np.load(os.path.join(Save_dir, "y_stage2.npy"))
+    # ── load event-level split data ───────────────────────────────────────────
+    # These are produced by build_data100.py which splits by event ID.
+    # Train and val matrices never share the same event — no leakage.
+    print("Loading train data...")
+    X_rphi_tr = np.load(os.path.join(train_dir, "X_rphi.npy"))
+    y_s2_tr   = np.load(os.path.join(train_dir, "y_stage2.npy"))
 
-    print(f"Full dataset : {len(X_rz)} matrices  "
-          f"signal={int(y_s1.sum())}  noise={int((1-y_s1).sum())}")
+    print("Loading val data...")
+    X_rphi_v  = np.load(os.path.join(val_dir, "X_rphi.npy"))
+    y_s2_v    = np.load(os.path.join(val_dir, "y_stage2.npy"))
 
-    # ── stage 1 filter ────────────────────────────────────────────────────────
-    s2_input_path = os.path.join(Save_dir, "X_rphi_s2.npy")
-    s2_label_path = os.path.join(Save_dir, "y_s2_filt.npy")
-
-    if os.path.exists(s2_input_path):
-        print("Loading stage 2 dataset from disk...")
-        X_rphi_s2 = np.load(s2_input_path)
-        y_s2_filt = np.load(s2_label_path)
-    else:
-        # ... your existing stage 1 filter code ...
-        pass
-
-    sig_rows = (y_s2_filt.sum(axis=1) > 0).sum()
-    fp_rows  = (y_s2_filt.sum(axis=1) == 0).sum()
-    print(f"\nStage 2 training: {len(X_rphi_s2)} total rows  "
+    sig_rows = (y_s2_tr.sum(axis=1) > 0).sum()
+    fp_rows  = (y_s2_tr.sum(axis=1) == 0).sum()
+    print(f"\nStage 2 training: {len(X_rphi_tr)} total rows  "
           f"signal={sig_rows}  false_pos={fp_rows}")
+    print(f"Stage 2 val:      {len(X_rphi_v)} total rows")
 
     # ── train or load stage 2 ─────────────────────────────────────────────────
     model_path = os.path.join(Save_dir, "model_stage2.pt")
@@ -313,21 +274,8 @@ if __name__ == "__main__":
     else:
         print("Training stage 2 model...")
         trained_model, train_losses, val_losses, val_ious, val_overlaps = \
-            train_stage2(X_rphi_s2, y_s2_filt)
-        torch.save({ ... }, model_path)
-
-    # ── variance test — OUTSIDE the if/else, always runs ──────────────────────
-    matrices1000_dir = r"C:\Users\felix\Downloads\Skola\Kand\BACHELOR_CODE\data\matrices1000"
-    X_1000 = np.load(os.path.join(matrices1000_dir, "X_rphi_s2.npy"))
-    y_1000 = np.load(os.path.join(matrices1000_dir, "y_s2_filt.npy"))
-
-    variance_results = run_variance_test(
-        X_1000,
-        y_1000,
-        n_seeds=5,
-        subset_size=1298,  # matches your 100-event dataset exactly
-        epochs=50
-    )
+            train_stage2(X_rphi_tr, y_s2_tr, X_rphi_v, y_s2_v)
+        torch.save({'model_state': trained_model.state_dict()}, model_path)
 
     # ── load stage 1 and scan ─────────────────────────────────────────────────
     print("Loading stage 1 model...")
