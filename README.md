@@ -37,11 +37,15 @@ Input grid  →  LIF layer 1  →  LIF layer 2  →  Linear  →  Output
 ## Repository Structure
 
 ```
-Felix/
-├── Code/          # Training scripts, data builders, evaluation
-├── SNN/           # RadLIFLayer model definition (snns.py)
-└── OlderPlots/    # Early exploratory scripts
-
+build_datasets/    # Scripts that build training matrices from raw TrackML events
+training/          # Stage 1 / Stage 2 model training scripts
+grid_search/       # Hyperparameter grid search + optimisation summaries
+evaluation/        # ROC curves, threshold sweeps, full-pipeline tests
+plotting/          # Visualisation scripts
+cluster_scripts/   # SLURM/UPPMAX submission scripts
+Functions.py       # Shared preprocessing utilities
+SNN/               # RadLIFLayer model definition (snns.py)
+exploratory/       # Early exploratory scripts (pre-pipeline EDA, baseline, param inspection)
 figures/           # Output plots and PDFs
 ```
 
@@ -67,20 +71,20 @@ matplotlib
 
 **1. Build training matrices**
 ```bash
-python Felix/Code/build_data100.py
+python build_datasets/build_data100.py
 ```
 
 **2. Train Stage 1 (cone filter)**
 ```bash
-python Felix/Code/Stage1_ConeFilter100.py
+python training/train_s1_100.py
 ```
 
 **3. Train Stage 2 (phi localiser)**
 ```bash
-python Felix/Code/Stage2_PhiFilter100.py
+python training/train_s2_100.py
 ```
 
-For cluster (UPPMAX) runs, see the SLURM submission scripts in `Felix/Code/submit_*.sh`.
+For cluster (UPPMAX) runs, see the SLURM submission scripts in `cluster_scripts/`.
 
 ---
 
