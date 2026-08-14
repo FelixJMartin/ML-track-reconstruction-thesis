@@ -1,6 +1,6 @@
 # Spiking Neural Networks as Track Filters in High-Energy Physics
 
-Bachelor thesis project exploring the use of **Spiking Neural Networks (SNNs)** for charged particle track filtering in high-energy physics detectors, using the [TrackML dataset](https://www.kaggle.com/c/trackml-particle-identification).
+Bachelor thesis project exploring **Spiking Neural Networks (SNNs)** for charged particle track filtering in LHC detector data, using the [TrackML dataset](https://www.kaggle.com/c/trackml-particle-identification). The pipeline is built on **neuromorphic computing** principles — spike-based, event-driven neurons — as a path toward the low-power, high-throughput filtering the upgraded High-Luminosity LHC (HL-LHC) will need.
 
 ![Focus](https://img.shields.io/badge/Focus-Neuromorphic%20Computing%20%26%20Particle%20Physics-4A90D9?style=flat-square)
 ![Tools](https://img.shields.io/badge/Tools-Python%20|%20PyTorch%20|%20SPArch-555555?style=flat-square)
@@ -15,11 +15,10 @@ Particle detectors at CERN produce on the order of 10⁵ hits per collision even
 This project implements a two-stage SNN pipeline that reduces the number of candidate hits before full reconstruction begins — filtering in both geometric space (cone-level) and angular space (φ-bin level). The networks are built on **Recurrent Adaptive LIF (RadLIF)** neurons, a biologically-inspired architecture that communicates via discrete binary spikes rather than continuous signals, offering potential energy efficiency advantages on neuromorphic hardware.
 
 <p align="center">
-  <img src="img/MLtrack.png" width="700">
+  <img src="img/raw_event.png" width="420">
+  <img src="img/filtered_track.png" width="420">
   <br>
-  <img src="img/Filtering.png" width="700">
-  <br>
-  <em>Particle track reconstruction in LHC detector data — raw hits (left), after Stage 1 cone filter (centre), after Stage 2 φ-bin localiser (right)</em>
+  <em>One held-out event before filtering (left, true track in red among detector noise) and after the full two-stage SNN pipeline (right) — only the real track survives.</em>
 </p>
 
 ---
@@ -34,6 +33,18 @@ The detector volume is split into 8 octant cones. For each cone, hits are projec
 
 Cones that pass Stage 1 are projected onto a **100×100 r-φ grid**, augmented with a column occupancy feature that encodes the coherent columnar structure of genuine tracks. A second RadLIF SNN identifies which φ-bins contain signal hits, further narrowing the candidate set for downstream reconstruction.
 
+<p align="center">
+  <img src="img/Filtering.png" width="800">
+  <br>
+  <em>Progressive hit removal across the pipeline: raw hits (left) → after Stage 1 cone filter (centre) → after Stage 2 φ-bin localiser (right).</em>
+</p>
+
+<p align="center">
+  <img src="img/input_matrices.png" width="800">
+  <br>
+  <em>What the SNNs actually see — a cone's hits encoded as r-z (Stage 1) and r-φ (Stage 2) binary grids, signal hits in white.</em>
+</p>
+
 ---
 
 ## Model Architecture
@@ -45,6 +56,12 @@ Input grid (100×100)  →  RadLIF layer 1 (512)  →  RadLIF layer 2 (256)  →
 ```
 
 Six parameter groups are learned jointly: feedforward weights **W**, recurrent weights **V**, membrane decay rate α, adaptation decay rate β, subthreshold coupling *a*, and spike-triggered adaptation *b*.
+
+<p align="center">
+  <img src="img/network_graph.jpg" width="360">
+  <br>
+  <em>The trained RadLIF network's feedforward and recurrent weight structure.</em>
+</p>
 
 ---
 
@@ -76,6 +93,12 @@ Evaluated on 20 held-out test events with classification thresholds p_S1 = 0.5, 
 - Signal efficiency: **92.8%**
 - Noise throwrate: **96.9%**
 - Stage 2 IoU: **81.7%** (up from 70.0% baseline)
+
+<p align="center">
+  <img src="img/results_summary.png" width="800">
+  <br>
+  <em>Pipeline recall/precision by stage, and overall hit reduction.</em>
+</p>
 
 ---
 
