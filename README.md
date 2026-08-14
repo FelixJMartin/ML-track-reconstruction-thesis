@@ -8,11 +8,34 @@ Bachelor thesis project exploring **Spiking Neural Networks (SNNs)** for charged
 
 ---
 
+## Why Neuromorphic Computing?
+
+Track reconstruction cost scales steeply with pileup — the number of simultaneous proton–proton collisions per event. At the HL-LHC, pileup rises to up to 200, and conventional CPU-based reconstruction is on track to become a bottleneck:
+
+<p align="center">
+  <img src="img/atlas_scaling.png" width="520">
+  <br>
+  <em>Reconstruction wall-time per event vs. pileup ⟨μ⟩. Source: ATLAS Collaboration.</em>
+</p>
+
+Spiking neural networks offer a different computational model: instead of dense, continuous-valued matrix multiplications every layer, neurons communicate via sparse, discrete spikes and only do work when a spike arrives — much like biological neurons.
+
+<p align="center">
+  <img src="img/neuron_biology.png" width="380">
+  <img src="img/spiking_neuron_diagram.png" width="420">
+  <br>
+  <em>From biological neuron (left) to the spiking-neuron abstraction used here (right): multiple input spike trains combine into a single output spike train.</em>
+</p>
+
+That event-driven sparsity is what makes SNNs a natural fit for neuromorphic hardware — and a promising way to keep hit-filtering fast and low-power as collision rates climb.
+
+---
+
 ## Overview
 
-Particle detectors at CERN produce on the order of 10⁵ hits per collision event. Identifying which hits belong to the same charged particle track — *track reconstruction* — is one of the most computationally demanding steps in the analysis pipeline. At the upcoming High-Luminosity LHC (HL-LHC), the number of simultaneous proton–proton collisions per event will rise to up to 200, placing combinatorial demands that are expected to exceed the budget available with conventional CPUs.
+Particle detectors at CERN produce on the order of 10⁵ hits per collision event. Identifying which hits belong to the same charged particle track — *track reconstruction* — is one of the most computationally demanding steps in the analysis pipeline.
 
-This project implements a two-stage SNN pipeline that reduces the number of candidate hits before full reconstruction begins — filtering in both geometric space (cone-level) and angular space (φ-bin level). The networks are built on **Recurrent Adaptive LIF (RadLIF)** neurons, a biologically-inspired architecture that communicates via discrete binary spikes rather than continuous signals, offering potential energy efficiency advantages on neuromorphic hardware.
+This project implements a two-stage SNN pipeline that reduces the number of candidate hits before full reconstruction begins — filtering in both geometric space (cone-level) and angular space (φ-bin level). The networks are built on **Recurrent Adaptive LIF (RadLIF)** neurons, which extend the spiking neuron above with recurrent connections and spike-frequency adaptation.
 
 <p align="center">
   <img src="img/raw_event.png" width="420">
@@ -39,10 +62,14 @@ Cones that pass Stage 1 are projected onto a **100×100 r-φ grid**, augmented w
   <em>Progressive hit removal across the pipeline: raw hits (left) → after Stage 1 cone filter (centre) → after Stage 2 φ-bin localiser (right).</em>
 </p>
 
+**The full Stage 1 classification pipeline, end to end:**
+
 <p align="center">
-  <img src="img/input_matrices.png" width="800">
+  <img src="img/matrix_single.png" width="280">
+  <img src="img/spike_trains.png" width="280">
+  <img src="img/network_graph.jpg" width="220">
   <br>
-  <em>What the SNNs actually see — a cone's hits encoded as r-z (Stage 1) and r-φ (Stage 2) binary grids, signal hits in white.</em>
+  <em>(a) An r-z projection matrix for a single cone, white = signal. (b) Each matrix row is presented to the network as one timestep, converting the spatial hit pattern into a spike train. (c) The two-layer RadLIF classifier and its learned weight structure.</em>
 </p>
 
 ---
@@ -58,9 +85,15 @@ Input grid (100×100)  →  RadLIF layer 1 (512)  →  RadLIF layer 2 (256)  →
 Six parameter groups are learned jointly: feedforward weights **W**, recurrent weights **V**, membrane decay rate α, adaptation decay rate β, subthreshold coupling *a*, and spike-triggered adaptation *b*.
 
 <p align="center">
-  <img src="img/network_graph.jpg" width="360">
+  <img src="img/lif_vs_radlif_dynamics.png" width="800">
   <br>
-  <em>The trained RadLIF network's feedforward and recurrent weight structure.</em>
+  <em>Plain LIF (left) vs. RadLIF (right): recurrent coupling and spike-triggered adaptation let RadLIF suppress firing after repeated activation, instead of firing at a constant rate.</em>
+</p>
+
+<p align="center">
+  <img src="img/spike_to_membrane_example.png" width="800">
+  <br>
+  <em>A real cone's input spikes (top), the resulting membrane potential (middle), and the neuron's output spikes (bottom).</em>
 </p>
 
 ---
@@ -95,9 +128,10 @@ Evaluated on 20 held-out test events with classification thresholds p_S1 = 0.5, 
 - Stage 2 IoU: **81.7%** (up from 70.0% baseline)
 
 <p align="center">
-  <img src="img/results_summary.png" width="800">
+  <img src="img/results_summary.png" width="700">
+  <img src="img/confidence_histogram.png" width="380">
   <br>
-  <em>Pipeline recall/precision by stage, and overall hit reduction.</em>
+  <em>Left: pipeline recall/precision by stage and overall hit reduction. Right: Stage 1 classifier confidence for true signal vs. noise cones — clean separation either side of the 0.5 threshold.</em>
 </p>
 
 ---
