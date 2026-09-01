@@ -588,9 +588,12 @@ if __name__ == "__main__":
   p = np.sqrt(px**2 + py**2)
   particles['p'] = p
 
+  particles_conditioned, hits_conditioned, n_afferent_trim = preprocess_particles(10, 10, particles, hits)     
+
+
   
-  histogram_of_particle_hits(particles)
-  histogram_of_particle_momenta(particles)
+  histogram_of_particle_hits(particles_conditioned)
+  histogram_of_particle_momenta(particles_conditioned)
   plot_hits(hits)
 
   #====================================================================================
